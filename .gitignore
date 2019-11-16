@@ -1,0 +1,4 @@
+*.whl
+*.pyc
+*.csv
+scripts/__pychache__/
