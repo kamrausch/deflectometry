@@ -4,7 +4,8 @@ import numpy as np
 import fire
 from glob import glob
 from python_utils import flir_control as flir
-from image_display import ImageDisplay
+from python_utils.image_display import ImageDisplay
+import cv2
 
 
 class Deflectometry():
@@ -20,6 +21,12 @@ class Deflectometry():
         self.exposure_ms = exposure_ms
         self.display_filenames_path = display_filenames_path
         self.results_path = results_path
+
+        if not os.path.exists(self.display_filenames_path):
+            if os.path.exists(r"C:\Users\localuser\Jobs\python\deflectometry"):
+                self.display_filenames_path = r"C:\Users\localuser\Jobs\python\deflectometry\display_images"
+                self.results_path = r"C:\Users\localuser\Jobs\python\deflectometry\results"
+
         os.makedirs(self.results_path, exist_ok=True)
 
         self.timestamp = f"{datetime.now():%Y%m%d_%H%M%S}"
@@ -34,15 +41,15 @@ class Deflectometry():
             image = cam_object.capture_image()
             if dark_image is not None:
                 image.subtract_background(background_image=dark_image)
-            breakpoint()
-            if image.is_image_valid(min_DN=50, max_DN=1000, roi_size=50):
+            if image.is_image_valid(min_DN=50, max_DN=70000, roi_size=50):
                 image_invalid = False
                 if save_fname is not None:
                     image.save(savename=save_fname)
-
+                return image
             else:
                 num_tries += 1
-        return image
+        else:
+            raise Exception(f"Unable to capture valid image for {save_fname}")
 
     def run_test(self):
         filenames = glob(os.path.join(self.display_filenames_path, "di_*.png"))
@@ -62,7 +69,6 @@ class Deflectometry():
 
             # push dark image to monitor and grab a picture
             self.image_display.show_image(dark_filename)
-            breakpoint()
             save_fname = os.path.join(self.results_path, self.get_savename(dark_filename))
             dark_image = self.capture_image(cam_object=flir_cam,
                                             dark_image=None,
@@ -70,10 +76,10 @@ class Deflectometry():
                                             max_DN=1000,
                                             save_fname=save_fname)
 
+            breakpoint()
             for filename in filenames:
                 self.image_display.show_image(filename)
                 save_fname = os.path.join(self.results_path, self.get_savename(filename))
-                breakpoint()
                 image = self.capture_image(cam_object=flir_cam,
                                            dark_image=dark_image,
                                            min_DN=100,
@@ -91,7 +97,7 @@ class Deflectometry():
     def measure_defect(self, gray, threshold=30, kernel_size=5, plot=True):
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
 
-        gray = cv2.imread(r"C:\Users\localuser\Jobs\python\deflectometry\results\defect2.png", 0)
+        gray = cv2.imread(r"C:\Users\localuser\Jobs\python\deflectometry\results\defect.png", 0)
 
         if plot:
             rgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
@@ -103,9 +109,14 @@ class Deflectometry():
         gray = cv2.dilate(gray, kernel, iterations=1)
         gray = cv2.erode(gray, kernel, iterations=1)
 
-        cnts, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        cnts = sorted(cnts, key = cv2.contourArea, reverse = True)[:10]
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:10]
+
+        mask = np.zeros_like(gray)  # Create mask where white is what we want, black otherwise
+        cv2.drawContours(mask, contours, 0, 255, -1)  # Draw filled contour in mask
+        out = np.zeros_like(gray)  # Extract out the object and place into output image
+        out[mask == 255] = gray[mask == 255]
 
         # https://stackoverflow.com/questions/28759253/how-to-crop-the-internal-area-of-a-contour
 

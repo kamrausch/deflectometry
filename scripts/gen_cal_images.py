@@ -43,7 +43,7 @@ def checkerboard(filesave,
 
 def bars(filesave,
          width=10,
-         period_in_pixels=100,         
+         period_in_pixels=100,
          resolution=[1000, 1200],
          offset_in_pixels=0,
          plot=False,
@@ -58,22 +58,18 @@ def bars(filesave,
     if "vertical" in orientation:
         resolution[1], resolution[0] = resolution[0], resolution[1]
 
-    num_periods = resolution[1] / period_in_pixels
-    image = np.linspace(offset_in_pixels, offset_in_pixels + resolution[1], resolution[1])
-    image = np.mod(image, period_in_pixels)
-    image[image>= width]
-    image = np.matlib.repmat(image, resolution[0], 1)
-
-    image = np.sin(image)
-    image = image-np.min(image)
-    image = image/np.max(image)
-
     if "vertical" in orientation:
-        image = np.transpose(image)
-
-    image = np.tile(image[:, :, np.newaxis], [1, 1, 3])
-    image = image*value
-    image = np.round(image).astype(np.uint8)
+        image = np.zeros([resolution[0], period_in_pixels, 3], dtype='uint8')
+        image[:, offset_in_pixels:offset_in_pixels+width, :] = value
+        numTiles = resolution[1] // period_in_pixels
+        image = np.tile(image, (1, numTiles, 1))
+        image = image[:, :resolution[1], :]
+    else:
+        image = np.zeros([period_in_pixels, resolution[1], 3], dtype='uint8')
+        image[offset_in_pixels:offset_in_pixels+width, :, :] = value
+        numTiles = resolution[0] // period_in_pixels
+        image = np.tile(image, (numTiles, 1, 1))
+        image = image[:resolution[1], :, :]
 
     if plot:
         plt.imshow(image)
@@ -83,8 +79,6 @@ def bars(filesave,
         cv2.imwrite(filesave, image)
     return image
 
-
-
 def sinusoidal(filesave,
                period_in_pixels=100,
                resolution=[1000, 1200],
@@ -92,7 +86,7 @@ def sinusoidal(filesave,
                plot=False,
                color="green",
                orientation="horizontal"):
-    
+
     try:
         value = COLORS_TO_VALUE[color]
     except KeyError:
