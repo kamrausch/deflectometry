@@ -3,25 +3,29 @@ from datetime import datetime
 import numpy as np
 import fire
 from glob import glob
-import flir_control as flir
+from python_utils import flir_control as flir
 from image_display import ImageDisplay
 
 
 class Deflectometry():
 
     def __init__(self,
+                 serial_number="default",
                  exposure_ms=15,
                  horizontal_resolution=3840,
-                 display_filenames_path=r"C:\Users\localuser\Jobs\python\deflectometry\display_images",
-                 results_path=r"C:\Users\localuser\Jobs\python\deflectometry\results"):
+                 display_filenames_path=r"C:\Users\kam_r\Jobs\python\deflectometry\display_images",
+                 results_path=r"C:\Users\kam_r\Jobs\python\deflectometry\results"):
 
+        self.serial_number = serial_number
         self.exposure_ms = exposure_ms
         self.display_filenames_path = display_filenames_path
         self.results_path = results_path
+        os.makedirs(self.results_path, exist_ok=True)
+
+        self.timestamp = f"{datetime.now():%Y%m%d_%H%M%S}"
 
         # itialize image display so we can display images on the second monitor
         self.image_display = ImageDisplay()
-        self.image_display.move_to_monitor(horizontal_resolution=horizontal_resolution)
 
     def capture_image(self, cam_object, min_DN, max_DN, save_fname=None, dark_image=None, max_retries=5):
         num_tries = 0
@@ -30,20 +34,25 @@ class Deflectometry():
             image = cam_object.capture_image()
             if dark_image is not None:
                 image.subtract_background(background_image=dark_image)
+            breakpoint()
             if image.is_image_valid(min_DN=50, max_DN=1000, roi_size=50):
                 image_invalid = False
                 if save_fname is not None:
-                    cam_object.save(savename=save_fname)
+                    image.save(savename=save_fname)
 
             else:
                 num_tries += 1
         return image
 
     def run_test(self):
-        filenames = glob(os.path.join(self.display_filenames, "di_*.png"))
+        filenames = glob(os.path.join(self.display_filenames_path, "di_*.png"))
 
         # pull out the dark filename so we can use it for dark subtraction. SHould capture this image first
         dark_filename = [x for x in filenames if "dark" in x]
+        if len(dark_filename) != 1:
+            raise Exception(f"Found {len(dark_filename)} files with the word dark in it when only should find one.")
+        else:
+            dark_filename = dark_filename[0]
         # now remove dark filename from list
         filenames = [x for x in filenames if "dark" not in x]
 
@@ -53,7 +62,8 @@ class Deflectometry():
 
             # push dark image to monitor and grab a picture
             self.image_display.show_image(dark_filename)
-            save_fname = os.path.join(self.results_path, os.path.basename(dark_filename).replace("de_", ""))
+            breakpoint()
+            save_fname = os.path.join(self.results_path, self.get_savename(dark_filename))
             dark_image = self.capture_image(cam_object=flir_cam,
                                             dark_image=None,
                                             min_DN=50,
@@ -62,14 +72,21 @@ class Deflectometry():
 
             for filename in filenames:
                 self.image_display.show_image(filename)
-                save_fname = os.path.join(self.results_path, os.path.basename(dark_filename).replace("de_", ""))
+                save_fname = os.path.join(self.results_path, self.get_savename(filename))
+                breakpoint()
                 image = self.capture_image(cam_object=flir_cam,
                                            dark_image=dark_image,
                                            min_DN=100,
                                            max_DN=5000,
                                            save_fname=save_fname)
 
-                self.measure_defect(image)
+                # self.measure_defect(image)
+
+    def get_savename(self, filename):
+        basename = os.path.basename(filename).replace("de_", "")
+        basename, ext = os.path.splitext(basename)
+        return f"{self.serial_number}_{basename}_{self.timestamp}{ext}"
+
 
     def measure_defect(self, gray, threshold=30, kernel_size=5, plot=True):
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
