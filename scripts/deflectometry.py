@@ -5,6 +5,7 @@ import fire
 from glob import glob
 from python_utils import flir_control as flir
 from python_utils.image_display import ImageDisplay
+import matplotlib.pyplot as plt
 import cv2
 
 
@@ -26,10 +27,16 @@ class Deflectometry():
             if os.path.exists(r"C:\Users\localuser\Jobs\python\deflectometry"):
                 self.display_filenames_path = r"C:\Users\localuser\Jobs\python\deflectometry\display_images"
                 self.results_path = r"C:\Users\localuser\Jobs\python\deflectometry\results"
-
-        os.makedirs(self.results_path, exist_ok=True)
+            if os.path.exists(r"C:\Users\tester\Jobs\python\deflectometry"):
+                self.display_filenames_path = r"C:\Users\tester\Jobs\python\deflectometry\display_images"
+                self.results_path = r"C:\Users\tester\Jobs\python\deflectometry\results"
+        else:
+            raise Exception(f"Not able to find the paths for the display images")
 
         self.timestamp = f"{datetime.now():%Y%m%d_%H%M%S}"
+
+        self.results_path = os.path.join(self.results_path, f"{self.serial_number}_{self.timestamp}")
+        os.makedirs(self.results_path, exist_ok=True)
 
         # itialize image display so we can display images on the second monitor
         self.image_display = ImageDisplay()
@@ -39,12 +46,13 @@ class Deflectometry():
         image_invalid = True
         while image_invalid and num_tries < max_retries:
             image = cam_object.capture_image()
-            if dark_image is not None:
-                image.subtract_background(background_image=dark_image)
-            if image.is_image_valid(min_DN=50, max_DN=70000, roi_size=50):
+            # breakpoint()
+            if image.is_image_valid(min_DN=min_DN, max_DN=max_DN):
                 image_invalid = False
                 if save_fname is not None:
                     image.save(savename=save_fname)
+                if dark_image is not None:
+                    image.subtract_background(background_image=dark_image)
                 return image
             else:
                 num_tries += 1
@@ -65,25 +73,27 @@ class Deflectometry():
 
         flir_cam = flir.FlirControl()
         with flir_cam:
-            flir_cam.set_exposure_time()
-
+            flir_cam.set_gain_db(gain_db=0.0)
             # push dark image to monitor and grab a picture
             self.image_display.show_image(dark_filename)
             save_fname = os.path.join(self.results_path, self.get_savename(dark_filename))
             dark_image = self.capture_image(cam_object=flir_cam,
                                             dark_image=None,
-                                            min_DN=50,
-                                            max_DN=1000,
+                                            min_DN=1,
+                                            max_DN=65000,
                                             save_fname=save_fname)
-
-            breakpoint()
+            # breakpoint()
             for filename in filenames:
+                if "width-1" in filename:
+                    flir_cam.set_exposure_time(exposure_time_ms=30e3)
+                else:
+                    flir_cam.set_exposure_time(exposure_time_ms=10e3)
                 self.image_display.show_image(filename)
                 save_fname = os.path.join(self.results_path, self.get_savename(filename))
                 image = self.capture_image(cam_object=flir_cam,
                                            dark_image=dark_image,
-                                           min_DN=100,
-                                           max_DN=5000,
+                                           min_DN=1,
+                                           max_DN=65000,
                                            save_fname=save_fname)
 
                 # self.measure_defect(image)

@@ -11,7 +11,7 @@ COLORS_TO_VALUE = {"red": [255, 0, 0], "green": [0, 255, 0], "blue": [0, 0, 255]
 
 def checkerboard(filesave,
                  block_size=100,               # size of each block in the checkerboard pattern
-                 resolution=[1000, 1000],      # resolution of generated image
+                 resolution=[2160, 3840],      # resolution of generated image
                  offset=[0, 0],                # offset of the pattern
                  plot=False,                # option to set whether or not to plot image.
                  color="green"):
@@ -44,10 +44,10 @@ def checkerboard(filesave,
 def bars(filesave,
          width=10,
          period_in_pixels=100,
-         resolution=[1000, 1200],
+         resolution=[2160, 3840],
          offset_in_pixels=0,
          plot=False,
-         color="green",
+         color="white",
          orientation="horizontal"):
 
     try:
@@ -56,20 +56,17 @@ def bars(filesave,
         raise KeyError(f"Could not find {color} in dictionary list")
 
     if "vertical" in orientation:
-        resolution[1], resolution[0] = resolution[0], resolution[1]
-
-    if "vertical" in orientation:
         image = np.zeros([resolution[0], period_in_pixels, 3], dtype='uint8')
         image[:, offset_in_pixels:offset_in_pixels+width, :] = value
-        numTiles = resolution[1] // period_in_pixels
+        numTiles = resolution[1] // period_in_pixels + 1
         image = np.tile(image, (1, numTiles, 1))
         image = image[:, :resolution[1], :]
     else:
         image = np.zeros([period_in_pixels, resolution[1], 3], dtype='uint8')
         image[offset_in_pixels:offset_in_pixels+width, :, :] = value
-        numTiles = resolution[0] // period_in_pixels
+        numTiles = resolution[0] // period_in_pixels + 1
         image = np.tile(image, (numTiles, 1, 1))
-        image = image[:resolution[1], :, :]
+        image = image[:resolution[0], :, :]
 
     if plot:
         plt.imshow(image)
@@ -81,7 +78,7 @@ def bars(filesave,
 
 def sinusoidal(filesave,
                period_in_pixels=100,
-               resolution=[1000, 1200],
+               resolution=[2160, 3840],
                offset_phase=0,
                plot=False,
                color="green",
