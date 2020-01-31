@@ -84,10 +84,10 @@ class Deflectometry():
                                             save_fname=save_fname)
             # breakpoint()
             for filename in filenames:
-                if "width-1" in filename:
-                    flir_cam.set_exposure_time(exposure_time_ms=5e3)
+                if "flatfield" in filename:
+                    flir_cam.set_exposure_time(exposure_time_ms=1e3)
                 else:
-                    flir_cam.set_exposure_time(exposure_time_ms=10e3)
+                    flir_cam.set_exposure_time(exposure_time_ms=5e3)
                 self.image_display.show_image(filename)
                 save_fname = os.path.join(self.results_path, self.get_savename(filename))
                 image = self.capture_image(cam_object=flir_cam,
