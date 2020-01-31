@@ -96,7 +96,7 @@ class Deflectometry():
             # breakpoint()
             for filename in filenames:
                 if "width-1" in filename:
-                    flir_cam.set_exposure_time(exposure_time_ms=30e3)
+                    flir_cam.set_exposure_time(exposure_time_ms=5e3)
                 else:
                     flir_cam.set_exposure_time(exposure_time_ms=10e3)
                 self.image_display.show_image(filename)
