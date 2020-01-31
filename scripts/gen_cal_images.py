@@ -42,7 +42,7 @@ def checkerboard(filesave,
 
 
 def bars(filesave,
-         width=10,
+         width=1,
          period_in_pixels=100,
          resolution=[2160, 3840],
          offset_in_pixels=0,
@@ -75,6 +75,77 @@ def bars(filesave,
     if filesave:
         cv2.imwrite(filesave, image)
     return image
+
+
+def line(filesave,
+         width=1,
+         resolution=[2160, 3840],
+         offset_in_pixels=0,
+         plot=False,
+         color="white",
+         orientation="horizontal"):
+
+    try:
+        value = COLORS_TO_VALUE[color]
+    except KeyError:
+        raise KeyError(f"Could not find {color} in dictionary list")
+
+    if "vertical" in orientation:
+        print(offset_in_pixels)
+        image = np.zeros([resolution[0], resolution[1], 3], dtype='uint8')
+        image[:, offset_in_pixels:offset_in_pixels+width, :] = value
+    else:
+        image = np.zeros([resolution[0], resolution[1], 3], dtype='uint8')
+        image[offset_in_pixels:offset_in_pixels+width, :, :] = value
+
+    if plot:
+        plt.imshow(image)
+        plt.show()
+
+    if filesave:
+        cv2.imwrite(filesave, image)
+    return image
+
+
+def gen_many_lines(filesave,
+                   width=1,
+                   resolution=[2160, 3840],
+                   offset_in_pixels=0,
+                   plot=False,
+                   color="white",
+                   orientation="vertical"):
+    if "ver" in orientation:
+        offsets = np.linspace(1000, 2000, 101)
+
+    for offset in offsets:
+        filesave_tmp = f"{filesave}_{offset}.png"
+        line(filesave_tmp,
+             width=1,
+             resolution=[2160, 3840],
+             offset_in_pixels=offset.astype(np.uint16),
+             plot=False,
+             color="green",
+             orientation="vertical")
+
+
+def gen_many_bar_images(filesave,
+                        width=1,
+                        period_in_pixels=100,
+                        resolution=[2160, 3840],
+                        offset_in_pixels=0,
+                        plot=False,
+                        color="green",
+                        orientation="horizontal"):
+    offsets = np.linspace(0, 90, 10)
+    for offset in offsets:
+        filesave_tmp = f"{filesave}_{offset}.png"
+        bars(filesave_tmp,
+             width=width,
+             period_in_pixels=period_in_pixels,
+             resolution=resolution,
+             offset_in_pixels=offset.astype(np.uint8),
+             color=color,
+             orientation=orientation)
 
 def sinusoidal(filesave,
                period_in_pixels=100,

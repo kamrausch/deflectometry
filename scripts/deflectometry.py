@@ -7,39 +7,37 @@ from python_utils import flir_control as flir
 from python_utils.image_display import ImageDisplay
 import matplotlib.pyplot as plt
 import cv2
+from scipy.ndimage.filters import gaussian_filter1d
+import shutil
+
+
+CROP_IMAGE = True
+x_crop = 2000
 
 
 class Deflectometry():
 
     def __init__(self,
                  serial_number="default",
-                 exposure_ms=15,
-                 horizontal_resolution=3840,
                  display_filenames_path=r"C:\Users\kam_r\Jobs\python\deflectometry\display_images",
-                 results_path=r"C:\Users\kam_r\Jobs\python\deflectometry\results"):
+                 results_path=r"C:\Users\kam_r\Jobs\python\deflectometry\results",
+                 archive_path=None):
 
-        self.serial_number = serial_number
-        self.exposure_ms = exposure_ms
         self.display_filenames_path = display_filenames_path
         self.results_path = results_path
+        self.archive_path = archive_path
 
-        if not os.path.exists(self.display_filenames_path):
-            if os.path.exists(r"C:\Users\localuser\Jobs\python\deflectometry"):
-                self.display_filenames_path = r"C:\Users\localuser\Jobs\python\deflectometry\display_images"
-                self.results_path = r"C:\Users\localuser\Jobs\python\deflectometry\results"
-            if os.path.exists(r"C:\Users\tester\Jobs\python\deflectometry"):
-                self.display_filenames_path = r"C:\Users\tester\Jobs\python\deflectometry\display_images"
-                self.results_path = r"C:\Users\tester\Jobs\python\deflectometry\results"
+        if self.archive_path is not None:
+            base_dirname = os.path.basename(self.archive_path)
+            parts = base_dirname.split("_")
+            self.serial_number = "_".join(parts[0: -2])
         else:
-            raise Exception(f"Not able to find the paths for the display images")
+            self.serial_number = serial_number
 
         self.timestamp = f"{datetime.now():%Y%m%d_%H%M%S}"
 
         self.results_path = os.path.join(self.results_path, f"{self.serial_number}_{self.timestamp}")
         os.makedirs(self.results_path, exist_ok=True)
-
-        # itialize image display so we can display images on the second monitor
-        self.image_display = ImageDisplay()
 
     def capture_image(self, cam_object, min_DN, max_DN, save_fname=None, dark_image=None, max_retries=5):
         num_tries = 0
@@ -59,7 +57,20 @@ class Deflectometry():
         else:
             raise Exception(f"Unable to capture valid image for {save_fname}")
 
-    def run_test(self):
+    def capture(self):
+
+        # itialize image display so we can display images on the second monitor
+        self.image_display = ImageDisplay()
+
+        if not os.path.exists(self.display_filenames_path):
+            if os.path.exists(r"C:\Users\localuser\Jobs\python\deflectometry"):
+                self.display_filenames_path = r"C:\Users\localuser\Jobs\python\deflectometry\display_images"
+                self.results_path = r"C:\Users\localuser\Jobs\python\deflectometry\results"
+            if os.path.exists(r"C:\Users\tester\Jobs\python\deflectometry"):
+                self.display_filenames_path = r"C:\Users\tester\Jobs\python\deflectometry\display_images"
+                self.results_path = r"C:\Users\tester\Jobs\python\deflectometry\results"
+            else:
+                raise Exception(f"Not able to find the paths for the display images")
         filenames = glob(os.path.join(self.display_filenames_path, "di_*.png"))
 
         # pull out the dark filename so we can use it for dark subtraction. SHould capture this image first
@@ -90,45 +101,189 @@ class Deflectometry():
                     flir_cam.set_exposure_time(exposure_time_ms=5e3)
                 self.image_display.show_image(filename)
                 save_fname = os.path.join(self.results_path, self.get_savename(filename))
+                save_fname = save_fname.replace("di_", "")
                 image = self.capture_image(cam_object=flir_cam,
                                            dark_image=dark_image,
                                            min_DN=1,
                                            max_DN=65000,
                                            save_fname=save_fname)
 
-                # self.measure_defect(image)
+                line_dict = self.find_line_in_image(gray=gray)
+                warp = self.measure_warp(line_dict)
+                spread = self.measure_spread(line_dict, threshold=0.5)
 
     def get_savename(self, filename):
-        basename = os.path.basename(filename).replace("de_", "")
+        basename = os.path.basename(filename).replace("di_", "")
         basename, ext = os.path.splitext(basename)
         return f"{self.serial_number}_{basename}_{self.timestamp}{ext}"
 
+    def measure_spread(self, line_dict, roi_wdith=50, threshold=0.3):
+        line_width = np.zeros((len(line_dict["y"])))
+        for ind, row in enumerate(line_dict["y"]):
+            # extract out region around centroid
+            roi = self.out[row, np.round(line_dict["x"][ind]-roi_wdith).astype(np.uint16):np.round(line_dict["x"][ind]+roi_wdith).astype(np.uint16)]
+            max_roi = np.max(roi)
+            max_ind = np.where(max_roi == roi)[0][0]
+            # find the point where the profile equals the FWHM of the peak
+            ind_start = np.where(np.min(np.abs(roi[:roi_wdith] - 0.3*max_roi)) == np.abs(roi[:roi_wdith] - 0.3*max_roi))[0][0]
+            sub_roi_ = roi[ind_start:max_ind]
+            x = line_dict["y"][ind_start:max_ind]
+            x0 = np.interp(0.5*max_roi, sub_roi_, x)
 
-    def measure_defect(self, gray, threshold=30, kernel_size=5, plot=True):
+
+            tmp_ = roi.copy()
+            tmp_[:max_ind] = 0
+            ind_end = np.where(np.min(np.abs(tmp_ - 0.3*max_roi)) == np.abs(tmp_ - 0.3*max_roi))[0][0]
+            sub_roi_ = roi[max_ind:ind_end]
+            x = line_dict["y"][max_ind:ind_end]
+            x1 = np.interp(0.5*max_roi, sub_roi_, x)
+            
+            line_width[ind] = x1-x0
+
+        line_width = gaussian_filter1d(line_width, sigma=2)
+        line_width = gaussian_filter1d(line_width, sigma=2)
+        return gaussian_filter1d(line_width, sigma=2)
+        
+
+    def measure_warp(self, line_dict, plot=True):
+        warp = {}
+        lsq = np.polyfit(line_dict["y"], line_dict["x"], 1)
+        residual = line_dict["x"]-np.polyval(lsq, line_dict["y"])
+        if plot:
+            rgb = cv2.cvtColor(self.gray.copy(), cv2.COLOR_GRAY2BGR)
+            plt.imshow(rgb)
+            plt.plot(np.polyval(lsq, line_dict["y"]), line_dict["y"], 'r-', linewidth=0.5)
+            plt.show()
+        warp["y"] = line_dict["y"]
+        warp["x"] = np.polyval(lsq, line_dict["y"])
+        warp["residual"] = residual
+        return warp
+
+    def find_line_in_image(self, image, threshold=30, kernel_size=5, plot=True):
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
 
-        gray = cv2.imread(r"C:\Users\localuser\Jobs\python\deflectometry\results\defect.png", 0)
-
         if plot:
-            rgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+            rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
-        gray = cv2.bilateralFilter(gray, 11, 17, 17)
+        self.gray = cv2.bilateralFilter(image, 11, 17, 17)
 
-        retval, thresh = cv2.threshold(gray.copy(), threshold, 255, cv2.THRESH_BINARY)
+        retval, thresh = cv2.threshold(image.copy(), threshold, 255, cv2.THRESH_BINARY)
 
-        gray = cv2.dilate(gray, kernel, iterations=1)
-        gray = cv2.erode(gray, kernel, iterations=1)
+        thresh = cv2.dilate(thresh, kernel, iterations=5)
+        # thresh = cv2.erode(thresh, kernel, iterations=3)
 
-        contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+        contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         contours = sorted(contours, key=cv2.contourArea, reverse=True)[:10]
 
-        mask = np.zeros_like(gray)  # Create mask where white is what we want, black otherwise
+        mask = np.zeros_like(image)  # Create mask where white is what we want, black otherwise
         cv2.drawContours(mask, contours, 0, 255, -1)  # Draw filled contour in mask
-        out = np.zeros_like(gray)  # Extract out the object and place into output image
-        out[mask == 255] = gray[mask == 255]
+        self.out = np.zeros_like(image)  # Extract out the object and place into output image
+        self.out[mask == 255] = image[mask == 255]
 
-        # https://stackoverflow.com/questions/28759253/how-to-crop-the-internal-area-of-a-contour
+        # with a vertical line in hand, lets calculate the centroid over each row
+        Ny, Nx = self.out.shape
+        centroids = np.zeros(Ny)
+        rows = np.arange(0, Ny)
+        for row in rows:
+            if np.sum(self.out[row, :]) == 0:
+                continue
+
+            centroids[row] = self.centroid_1D(self.out[row, :])
+
+        ind = np.where(centroids > 0)
+        rows = rows[ind]
+        centroids = centroids[ind]
+        # lets lop off a few more just to make sure we don't have edge effects
+        rows = rows[3:-3]
+        centroids = centroids[3:-3]
+        # now lets fill in the gaps incase there were some
+        new_rows = np.arange(np.min(rows), np.max(rows)+1)
+        centroids - np.interp(new_rows, rows, centroids)
+        centroids = gaussian_filter1d(centroids, sigma=2)
+        
+        return {"y": new_rows, "x": centroids}
+
+    def extract_line(self, gray, line_ind):
+        breakpoint()
+
+    def centroid_1D(self, data):
+        x = np.arange(0, len(data))
+        return np.sum(x*data)/np.sum(data)
+
+    def run_offline(self, results_dir=None):
+        # image_filenames = glob(os.path.join(results_dir, "*.png"))
+        self.gray = cv2.imread(r"D:\deflectometry\results\film_stack_rp_side_di_bars_0.0_20200130_135544.png", 0)
+        # lines_per_image = 7
+        # for line_ind in np.arange(0, lines_per_image):
+            # cropped_gray = self.extract_line(gray, line_ind)
+        line_dict = self.find_line_in_image()
+        warp = self.measure_warp(line_dict)
+            # spread = self.measure_spread(line_dict, threshold=0.5)
+        breakpoint()
+
+    def load_image(self, filename):
+        if not os.path.exists(filename):
+            print(f"{filename} does not exist")
+
+        image = cv2.imread(filename, 0)
+        if CROP_IMAGE:
+            image = self.crop_image(image.copy())
+        return image
+
+    def copy_images_to_results_path(self):
+        _ = shutil.copytree(os.path.join(self.archive_path, "images"), os.path.join(self.results_path, "images"))
+
+    def crop_image(self, image):
+        return image[:, :x_crop]
+
+    def get_slopes(self):
+        filenames = glob(os.path.join(self.results_path, "images", "*.png"))
+
+        x = []
+        y = []
+        z = []
+        for filename in filenames:
+            image = self.load_image(filename)
+
+            # apply the mask to filter out background
+            image = image * self.mask
+
+            line_dict = self.find_line_in_image(image=image)
+            warp = self.measure_warp(line_dict)
+
+            x.extend(warp["x"])
+            y.extend(warp["y"])
+            z.extend(warp["residual"])
+            breakpoint()
+
+
+    def find_mask(self, threshold=100):
+        flatfield_filename = os.path.join(self.results_path, "images", "*flatfield*.png")
+        filename = glob(flatfield_filename)
+        if len(filename) == 0:
+            print(f"{flatfield_image} not found")
+        elif len(filename) > 1:
+            print(f"More than 1 flatfield image was found")
+        else:
+            filename = filename[0]
+
+        image = self.load_image(filename)
+        
+        self.mask = ((image > threshold)*1).astype(np.uint8)
+        kernel = np.ones((5,5), np.uint8)
+        self.mask = cv2.erode(self.mask, kernel, iterations=3)
+        self.mask_edge = cv2.Canny(self.mask, 0, 1)
+
+    def run_test(self):
+        if not self.archive_path:
+            self.capture()
+        else:
+            self.copy_images_to_results_path()
+
+        self.find_mask()
+
+        self.get_slopes()
+
 
 
 if __name__ == '__main__':
