@@ -3,3 +3,4 @@
 *.csv
 scripts/__pychache__/
 results/
+display_images/
