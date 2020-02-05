@@ -107,7 +107,7 @@ def line(filesave,
 
 def gen_deflectometry_images(basepath):
     roi = {}
-    roi["ver"] = [1640, 2460]
+    roi["ver"] = [1620, 2540]
     roi["hor"] = [520, 1390]
     spacing = 20
     for orientation in ["hor", "ver"]:
