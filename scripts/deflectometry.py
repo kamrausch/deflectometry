@@ -8,11 +8,13 @@ from python_utils.image_display import ImageDisplay
 import matplotlib.pyplot as plt
 import cv2
 from scipy.ndimage.filters import gaussian_filter1d
+from scipy.interpolate import griddata
 import shutil
 
 
-CROP_IMAGE = True
+CROP_IMAGE = False
 x_crop = 2000
+ROTATE_IMAGE = True
 
 
 class Deflectometry():
@@ -145,9 +147,12 @@ class Deflectometry():
         return gaussian_filter1d(line_width, sigma=2)
         
 
-    def measure_warp(self, line_dict, plot=True):
+    def measure_warp(self, line_dict, plot=False):
         warp = {}
-        lsq = np.polyfit(line_dict["y"], line_dict["x"], 1)
+        try:
+            lsq = np.polyfit(line_dict["y"], line_dict["x"], 1)
+        except:
+            breakpoint()
         residual = line_dict["x"]-np.polyval(lsq, line_dict["y"])
         if plot:
             rgb = cv2.cvtColor(self.gray.copy(), cv2.COLOR_GRAY2BGR)
@@ -160,23 +165,31 @@ class Deflectometry():
         return warp
 
     def find_line_in_image(self, image, threshold=30, kernel_size=5, plot=True):
+        min_contour_area = 500
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
 
         if plot:
             rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
-        self.gray = cv2.bilateralFilter(image, 11, 17, 17)
+        image = cv2.bilateralFilter(image, 11, 17, 17)
 
         retval, thresh = cv2.threshold(image.copy(), threshold, 255, cv2.THRESH_BINARY)
 
         thresh = cv2.dilate(thresh, kernel, iterations=5)
-        # thresh = cv2.erode(thresh, kernel, iterations=3)
+        thresh = cv2.erode(thresh, kernel, iterations=5)
 
         contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:10]
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        if len(contours) < 1:
+            return {"y": [], "x": []}
+        else:
+            contours = contours[0]
+        if cv2.contourArea(contours) < min_contour_area:
+            return {"y": [], "x": []}
 
         mask = np.zeros_like(image)  # Create mask where white is what we want, black otherwise
-        cv2.drawContours(mask, contours, 0, 255, -1)  # Draw filled contour in mask
+        # drawContours requires an array of arrays as input
+        cv2.drawContours(mask, [contours], -1, 255, -1)  # Draw filled contour in mask
         self.out = np.zeros_like(image)  # Extract out the object and place into output image
         self.out[mask == 255] = image[mask == 255]
 
@@ -194,10 +207,13 @@ class Deflectometry():
         rows = rows[ind]
         centroids = centroids[ind]
         # lets lop off a few more just to make sure we don't have edge effects
-        rows = rows[3:-3]
-        centroids = centroids[3:-3]
+        # rows = rows[3:-3]
+        # centroids = centroids[3:-3]
         # now lets fill in the gaps incase there were some
-        new_rows = np.arange(np.min(rows), np.max(rows)+1)
+        try:
+            new_rows = np.arange(np.min(rows), np.max(rows)+1)
+        except:
+            breakpoint()
         centroids - np.interp(new_rows, rows, centroids)
         centroids = gaussian_filter1d(centroids, sigma=2)
         
@@ -226,6 +242,10 @@ class Deflectometry():
             print(f"{filename} does not exist")
 
         image = cv2.imread(filename, 0)
+
+        if ROTATE_IMAGE:
+            image = np.rot90(image, 1)
+
         if CROP_IMAGE:
             image = self.crop_image(image.copy())
         return image
@@ -236,25 +256,49 @@ class Deflectometry():
     def crop_image(self, image):
         return image[:, :x_crop]
 
-    def get_slopes(self):
-        filenames = glob(os.path.join(self.results_path, "images", "*.png"))
+    def get_slopes(self, orientation):
+        if "ver" in orientation:
+            orientation = "ver"
+        else:
+            orientation = "hor"
+        filenames = glob(os.path.join(self.results_path, "images", f"*{orientation}*.png"))
 
         x = []
         y = []
         z = []
-        for filename in filenames:
+        for ind, filename in enumerate(filenames):
+            # print(f"{filename}: {ind}")
+            if "flatfield" in filename:
+                continue
             image = self.load_image(filename)
 
             # apply the mask to filter out background
             image = image * self.mask
 
             line_dict = self.find_line_in_image(image=image)
+            if len(line_dict["y"]) < 10:
+                continue
             warp = self.measure_warp(line_dict)
 
             x.extend(warp["x"])
             y.extend(warp["y"])
             z.extend(warp["residual"])
-            breakpoint()
+        return x, y, z
+        
+
+    def combine_images(self):
+        filenames = glob(os.path.join(self.results_path, "images", "*.png"))
+        for ind, filename in enumerate(filenames):
+            if "flatfield" in filename:
+                continue
+            if ind == 0:
+                image = self.load_image(filename).astype(np.float32)
+            else:
+                image = image + self.load_image(filename).astype(np.float32)
+        breakpoint()
+        plt.imshow(image*self.mask)
+        # plt.axis("equal")
+        plt.show()            
 
 
     def find_mask(self, threshold=100):
@@ -274,6 +318,17 @@ class Deflectometry():
         self.mask = cv2.erode(self.mask, kernel, iterations=3)
         self.mask_edge = cv2.Canny(self.mask, 0, 1)
 
+    def combine_data(self, vert_data, horiz_data):
+        gridPts = 500
+        breakpoint()
+        x_min = np.min([np.min(vert_data)])
+        xi = np.linspace( axisMin, axisMax, gridPts )
+        yi = np.linspace( axisMin, axisMax, gridPts )
+        # pdb.set_trace()
+        grid_x, grid_y = np.meshgrid(xi, yi)
+        # xy = ( [ x[0] for x in ldpts ], [ x[1] for x in ldpts ] )
+        gridErr = griddata( np.array(ldpts), polyErr, (grid_x, grid_y), method="linear" )
+
     def run_test(self):
         if not self.archive_path:
             self.capture()
@@ -282,7 +337,13 @@ class Deflectometry():
 
         self.find_mask()
 
-        self.get_slopes()
+        # vert_data = self.get_slopes(orientation="ver")
+        horiz_data = self.get_slopes(orientation="hor")
+
+        breakpoint()
+        error_map = self.combine_data(vert_data=vert_data, horiz_data=horiz_data)
+
+        # self.combine_images()
 
 
 
