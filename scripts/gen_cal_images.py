@@ -90,8 +90,7 @@ def line(filesave,
     except KeyError:
         raise KeyError(f"Could not find {color} in dictionary list")
 
-    if "vertical" in orientation:
-        print(offset_in_pixels)
+    if "ver" in orientation:
         image = np.zeros([resolution[0], resolution[1], 3], dtype='uint8')
         image[:, offset_in_pixels:offset_in_pixels+width, :] = value
     else:
@@ -106,16 +105,46 @@ def line(filesave,
         cv2.imwrite(filesave, image)
     return image
 
+def gen_deflectometry_images(basepath):
+    roi = {}
+    roi["ver"] = [1640, 2460]
+    roi["hor"] = [520, 1390]
+    spacing = 20
+    for orientation in ["hor", "ver"]:
+        offsets = range(roi[orientation][0], roi[orientation][1]+spacing, spacing)
+        for offset in offsets:
+            filesave_tmp = os.path.join(basepath, f"di_{orientation}_{offset}.png")
+            line(filesave_tmp,
+                 width=1,
+                 resolution=[2160, 3840],
+                 offset_in_pixels=offset,
+                 plot=False,
+                 color="green",
+                 orientation=orientation)
+
+    # generate flatfield image
+    flatfield = np.zeros((2160, 3840, 3)).astype(np.uint8)
+    cv2.imwrite(os.path.join(basepath, f"di_dark.png"), flatfield)
+    flatfield[roi["hor"][0]:roi["hor"][1], roi["ver"][0]:roi["ver"][1], 1] = 255
+    cv2.imwrite(os.path.join(basepath, f"di_flatfield_green.png"), flatfield)
+
 
 def gen_many_lines(filesave,
                    width=1,
                    resolution=[2160, 3840],
                    offset_in_pixels=0,
                    plot=False,
-                   color="white",
-                   orientation="vertical"):
+                   color="green",
+                   orientation="hor"):
     if "ver" in orientation:
-        offsets = np.linspace(1000, 2000, 101)
+        start = 1680
+        end = 2700
+        num_pts = (end-start)/10 + 1
+    else:
+        start = 50
+        end = 1380
+        num_pts = (end-start)/10 + 1        
+    offsets = np.linspace(start, end, num_pts)
 
     for offset in offsets:
         filesave_tmp = f"{filesave}_{offset}.png"
@@ -123,9 +152,9 @@ def gen_many_lines(filesave,
              width=1,
              resolution=[2160, 3840],
              offset_in_pixels=offset.astype(np.uint16),
-             plot=False,
-             color="green",
-             orientation="vertical")
+             plot=plot,
+             color=color,
+             orientation=orientation)
 
 
 def gen_many_bar_images(filesave,
@@ -146,6 +175,22 @@ def gen_many_bar_images(filesave,
              offset_in_pixels=offset.astype(np.uint8),
              color=color,
              orientation=orientation)
+
+
+def focusing_target(filesave,
+                    width=2,
+                    resolution=[2160, 3840],
+                    plot=False,
+                    color="green",
+                    orientation="horizontal"):
+    bars(filesave,
+         width=width,
+         period_in_pixels=2*width,
+         resolution=resolution,
+         offset_in_pixels=0,
+         color=color,
+         orientation=orientation)
+    
 
 def sinusoidal(filesave,
                period_in_pixels=100,

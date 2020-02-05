@@ -3,12 +3,15 @@ from datetime import datetime
 import numpy as np
 import fire
 from glob import glob
-from python_utils import flir_control as flir
+from python_utils import vimba_control as camera
 from python_utils.image_display import ImageDisplay
 import matplotlib.pyplot as plt
 import cv2
 from scipy.ndimage.filters import gaussian_filter1d
+from scipy.ndimage import maximum_filter, minimum_filter, gaussian_filter
 import shutil
+import progressbar
+from time import sleep
 
 
 CROP_IMAGE = True
@@ -19,8 +22,8 @@ class Deflectometry():
 
     def __init__(self,
                  serial_number="default",
-                 display_filenames_path=r"C:\Users\kam_r\Jobs\python\deflectometry\display_images",
-                 results_path=r"C:\Users\kam_r\Jobs\python\deflectometry\results",
+                 display_filenames_path=r"C:\Users\tester\Jobs\python\deflectometry\display_images",
+                 results_path=r"C:\Users\tester\Jobs\python\deflectometry\results",
                  archive_path=None):
 
         self.display_filenames_path = display_filenames_path
@@ -48,7 +51,7 @@ class Deflectometry():
             if image.is_image_valid(min_DN=min_DN, max_DN=max_DN):
                 image_invalid = False
                 if save_fname is not None:
-                    image.save(savename=save_fname)
+                    image.save(savename=save_fname, save_yaml=False)
                 if dark_image is not None:
                     image.subtract_background(background_image=dark_image)
                 return image
@@ -56,6 +59,56 @@ class Deflectometry():
                 num_tries += 1
         else:
             raise Exception(f"Unable to capture valid image for {save_fname}")
+
+    def focus_camera(self, bar_target_filename=None):
+
+        if bar_target_filename is None:
+            pname = os.path.dirname(self.display_filenames_path)
+            bar_target_filename = os.path.join(pname, "focusing_bar_chart_2.png")
+        self.image_display = ImageDisplay()
+        if not os.path.exists(bar_target_filename):
+            raise FileNotFoundError(f"{bar_target_filename} not found")
+
+        filenames = glob(os.path.join(self.display_filenames_path, "di_*.png"))
+        # pull out the dark filename so we can use it for dark subtraction. SHould capture this image first
+        dark_filename = [x for x in filenames if "dark" in x][0]
+
+        plt.ion()
+        contrast = []
+        inds= []
+        cam = camera.VimbaControl()
+        with cam:
+            cam.set_gain_db(gain_db=10.0)
+            # cam.set_exposure_time_ms(exposure_time_ms=1e3)
+            cam.set_exposure_time_ms(exposure_time_ms=400)
+            self.image_display.show_image(dark_filename)
+            dark_image = self.capture_image(cam_object=cam,
+                                            dark_image=None,
+                                            min_DN=1,
+                                            max_DN=65000,
+                                            save_fname=None)
+
+            self.image_display.show_image(bar_target_filename)
+            for ind in range(0, 1000): 
+                image = self.capture_image(cam_object=cam,
+                                           dark_image=dark_image.image,
+                                           min_DN=1,
+                                           max_DN=65000,
+                                           save_fname=None)
+
+                Ny, Nx = image.image.shape
+                roi = image.image[2200:2600, 2600:3000]
+                min_contrast = minimum_filter(roi, (20, 20)).astype(np.float32)
+                max_contrast = maximum_filter(roi, (20, 20)).astype(np.float32)
+                contrast_ = (max_contrast-min_contrast) / (max_contrast+min_contrast)
+                contrast_ = gaussian_filter(contrast_, sigma=4)
+                contrast_[contrast_>1] = 1
+                contrast_[contrast_<0] = 0
+                contrast.append(np.mean(contrast_))
+                inds.append(ind)
+                plt.plot(inds, contrast)
+                plt.pause(0.001)
+
 
     def capture(self):
 
@@ -81,36 +134,41 @@ class Deflectometry():
             dark_filename = dark_filename[0]
         # now remove dark filename from list
         filenames = [x for x in filenames if "dark" not in x]
+        num_files = len(filenames)
 
-        flir_cam = flir.FlirControl()
-        with flir_cam:
-            flir_cam.set_gain_db(gain_db=0.0)
+        bar = progressbar.ProgressBar(maxval=len(filenames),
+                                      widgets=[progressbar.Bar('=', '[', ']'),
+                                      ' ',
+                                      progressbar.Percentage()])
+        bar.start()
+        cam = camera.VimbaControl()
+        with cam:
+            cam.set_gain_db(gain_db=0.0)
             # push dark image to monitor and grab a picture
             self.image_display.show_image(dark_filename)
             save_fname = os.path.join(self.results_path, self.get_savename(dark_filename))
-            dark_image = self.capture_image(cam_object=flir_cam,
+            dark_image = self.capture_image(cam_object=cam,
                                             dark_image=None,
                                             min_DN=1,
                                             max_DN=65000,
                                             save_fname=save_fname)
             # breakpoint()
-            for filename in filenames:
+            for ind, filename in enumerate(filenames):
+                bar.update(ind+1)
                 if "flatfield" in filename:
-                    flir_cam.set_exposure_time(exposure_time_ms=1e3)
+                    cam.set_exposure_time_ms(exposure_time_ms=1e3)
                 else:
-                    flir_cam.set_exposure_time(exposure_time_ms=5e3)
+                    cam.set_exposure_time_ms(exposure_time_ms=5e3)
                 self.image_display.show_image(filename)
                 save_fname = os.path.join(self.results_path, self.get_savename(filename))
                 save_fname = save_fname.replace("di_", "")
-                image = self.capture_image(cam_object=flir_cam,
-                                           dark_image=dark_image,
+                image = self.capture_image(cam_object=cam,
+                                           dark_image=dark_image.image,
                                            min_DN=1,
                                            max_DN=65000,
                                            save_fname=save_fname)
-
-                line_dict = self.find_line_in_image(gray=gray)
-                warp = self.measure_warp(line_dict)
-                spread = self.measure_spread(line_dict, threshold=0.5)
+                sleep(0.01)
+            bar.finish()
 
     def get_savename(self, filename):
         basename = os.path.basename(filename).replace("di_", "")
