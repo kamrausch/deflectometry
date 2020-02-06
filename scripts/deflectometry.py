@@ -8,7 +8,6 @@ from python_utils.image_display import ImageDisplay
 import matplotlib.pyplot as plt
 import cv2
 from scipy.ndimage.filters import gaussian_filter1d
-<<<<<<< HEAD
 from scipy.interpolate import griddata
 from scipy.ndimage import maximum_filter, minimum_filter, gaussian_filter
 import shutil
@@ -18,7 +17,7 @@ from time import sleep
 
 CROP_IMAGE = False
 x_crop = 2000
-ROTATE_IMAGE = True
+ROTATE_IMAGE = False
 
 
 class Deflectometry():
@@ -26,7 +25,7 @@ class Deflectometry():
     def __init__(self,
                  serial_number="default",
                  display_filenames_path=r"C:\Users\tester\Jobs\python\deflectometry\display_images",
-                 results_path=r"C:\Users\tester\Jobs\python\deflectometry\results",
+                 results_path=r"C:\Users\kam_r\Jobs\python\deflectometry\results",
                  archive_path=None):
 
         self.display_filenames_path = display_filenames_path
@@ -182,7 +181,9 @@ class Deflectometry():
         line_width = np.zeros((len(line_dict["y"])))
         for ind, row in enumerate(line_dict["y"]):
             # extract out region around centroid
+            breakpoint()
             roi = self.out[row, np.round(line_dict["x"][ind]-roi_wdith).astype(np.uint16):np.round(line_dict["x"][ind]+roi_wdith).astype(np.uint16)]
+            
             max_roi = np.max(roi)
             max_ind = np.where(max_roi == roi)[0][0]
             # find the point where the profile equals the FWHM of the peak
@@ -201,7 +202,6 @@ class Deflectometry():
             
             line_width[ind] = x1-x0
 
-        line_width = gaussian_filter1d(line_width, sigma=2)
         line_width = gaussian_filter1d(line_width, sigma=2)
         return gaussian_filter1d(line_width, sigma=2)
         
@@ -285,17 +285,6 @@ class Deflectometry():
         x = np.arange(0, len(data))
         return np.sum(x*data)/np.sum(data)
 
-    def run_offline(self, results_dir=None):
-        # image_filenames = glob(os.path.join(results_dir, "*.png"))
-        self.gray = cv2.imread(r"D:\deflectometry\results\film_stack_rp_side_di_bars_0.0_20200130_135544.png", 0)
-        # lines_per_image = 7
-        # for line_ind in np.arange(0, lines_per_image):
-            # cropped_gray = self.extract_line(gray, line_ind)
-        line_dict = self.find_line_in_image()
-        warp = self.measure_warp(line_dict)
-            # spread = self.measure_spread(line_dict, threshold=0.5)
-        breakpoint()
-
     def load_image(self, filename):
         if not os.path.exists(filename):
             print(f"{filename} does not exist")
@@ -325,6 +314,7 @@ class Deflectometry():
         x = []
         y = []
         z = []
+        spread = []
         for ind, filename in enumerate(filenames):
             # print(f"{filename}: {ind}")
             if "flatfield" in filename:
@@ -333,15 +323,21 @@ class Deflectometry():
 
             # apply the mask to filter out background
             image = image * self.mask
+            if "hor" in orientation:
+                image = np.transpose(image)
 
             line_dict = self.find_line_in_image(image=image)
             if len(line_dict["y"]) < 10:
                 continue
             warp = self.measure_warp(line_dict)
-
             x.extend(warp["x"])
             y.extend(warp["y"])
             z.extend(warp["residual"])
+
+            spread = self.measure_spread(line_dict, threshold=0.5)
+
+        if "hor" in orientation:
+            x,y = y,x
         return x, y, z
         
 
@@ -379,14 +375,18 @@ class Deflectometry():
 
     def combine_data(self, vert_data, horiz_data):
         gridPts = 500
-        breakpoint()
-        x_min = np.min([np.min(vert_data)])
-        xi = np.linspace( axisMin, axisMax, gridPts )
-        yi = np.linspace( axisMin, axisMax, gridPts )
-        # pdb.set_trace()
+        mask_y, mask_x = np.where(self.mask > 0)
+        x_min = np.min(mask_x)
+        x_max = np.max(mask_x)
+        y_min = np.min(mask_y)
+        y_max = np.max(mask_y)
+        xi = np.linspace(x_min, x_max, gridPts)
+        yi = np.linspace(y_min, y_max, gridPts)
         grid_x, grid_y = np.meshgrid(xi, yi)
-        # xy = ( [ x[0] for x in ldpts ], [ x[1] for x in ldpts ] )
-        gridErr = griddata( np.array(ldpts), polyErr, (grid_x, grid_y), method="linear" )
+        grid_vert = griddata(np.transpose(np.array(vert_data[:2])), np.array(vert_data[2]), (grid_x, grid_y), method="linear" )
+        grid_horiz = griddata(np.transpose(np.array(horiz_data[:2])), np.array(horiz_data[2]), (grid_x, grid_y), method="linear" )
+        return np.sqrt(grid_vert**2 + grid_horiz**2)*0.136 / (43*25.4) * 180/np.pi
+
 
     def run_test(self):
         if not self.archive_path:
@@ -396,13 +396,16 @@ class Deflectometry():
 
         self.find_mask()
 
-        # vert_data = self.get_slopes(orientation="ver")
+        vert_data = self.get_slopes(orientation="ver")
         horiz_data = self.get_slopes(orientation="hor")
 
-        breakpoint()
         error_map = self.combine_data(vert_data=vert_data, horiz_data=horiz_data)
-
+        plt.imshow(error_map)
+        plt.colorbar()
+        plt.show()
         # self.combine_images()
+
+
 
 
 
