@@ -25,12 +25,22 @@ class Deflectometry():
     def __init__(self,
                  serial_number="default",
                  display_filenames_path=r"C:\Users\tester\Jobs\python\deflectometry\display_images",
-                 results_path=r"C:\Users\kam_r\Jobs\python\deflectometry\results",
+                 results_path=r"C:\Users\tester\Jobs\python\deflectometry\results",
                  archive_path=None):
 
         self.display_filenames_path = display_filenames_path
         self.results_path = results_path
         self.archive_path = archive_path
+
+        if not os.path.exists(self.display_filenames_path):
+            if os.path.exists(r"C:\Users\localuser\Jobs\python\deflectometry"):
+                self.display_filenames_path = r"C:\Users\localuser\Jobs\python\deflectometry\display_images"
+                self.results_path = r"C:\Users\localuser\Jobs\python\deflectometry\results"
+            if os.path.exists(r"C:\Users\tester\Jobs\python\deflectometry"):
+                self.display_filenames_path = r"C:\Users\tester\Jobs\python\deflectometry\display_images"
+                self.results_path = r"C:\Users\tester\Jobs\python\deflectometry\results"
+            else:
+                raise Exception(f"Not able to find the paths for the display images")
 
         if self.archive_path is not None:
             base_dirname = os.path.basename(self.archive_path)
@@ -117,15 +127,6 @@ class Deflectometry():
         # itialize image display so we can display images on the second monitor
         self.image_display = ImageDisplay()
 
-        if not os.path.exists(self.display_filenames_path):
-            if os.path.exists(r"C:\Users\localuser\Jobs\python\deflectometry"):
-                self.display_filenames_path = r"C:\Users\localuser\Jobs\python\deflectometry\display_images"
-                self.results_path = r"C:\Users\localuser\Jobs\python\deflectometry\results"
-            if os.path.exists(r"C:\Users\tester\Jobs\python\deflectometry"):
-                self.display_filenames_path = r"C:\Users\tester\Jobs\python\deflectometry\display_images"
-                self.results_path = r"C:\Users\tester\Jobs\python\deflectometry\results"
-            else:
-                raise Exception(f"Not able to find the paths for the display images")
         filenames = glob(os.path.join(self.display_filenames_path, "di_*.png"))
 
         # pull out the dark filename so we can use it for dark subtraction. SHould capture this image first
@@ -158,9 +159,11 @@ class Deflectometry():
             for ind, filename in enumerate(filenames):
                 bar.update(ind+1)
                 if "flatfield" in filename:
-                    cam.set_exposure_time_ms(exposure_time_ms=1e3)
+                    # cam.set_exposure_time_ms(exposure_time_ms=1e3)
+                    cam.set_exposure_time_ms(exposure_time_ms=950)
                 else:
-                    cam.set_exposure_time_ms(exposure_time_ms=5e3)
+                    # cam.set_exposure_time_ms(exposure_time_ms=5e3)
+                    cam.set_exposure_time_ms(exposure_time_ms=950)
                 self.image_display.show_image(filename)
                 save_fname = os.path.join(self.results_path, self.get_savename(filename))
                 save_fname = save_fname.replace("di_", "")

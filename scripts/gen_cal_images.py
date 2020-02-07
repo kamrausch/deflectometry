@@ -107,8 +107,8 @@ def line(filesave,
 
 def gen_deflectometry_images(basepath):
     roi = {}
-    roi["ver"] = [1620, 2540]
-    roi["hor"] = [520, 1390]
+    roi["ver"] = [1600, 2560]
+    roi["hor"] = [500, 1400]
     spacing = 20
     for orientation in ["hor", "ver"]:
         offsets = range(roi[orientation][0], roi[orientation][1]+spacing, spacing)
@@ -122,11 +122,24 @@ def gen_deflectometry_images(basepath):
                  color="green",
                  orientation=orientation)
 
+        for width in range(1, 5):
+            filesave_tmp = os.path.join(basepath, f"di_contrast_bars_{orientation}_{width}.png")
+            bars(filesave_tmp,
+                 width=width,
+                 period_in_pixels=2*width,
+                 resolution=[2160, 3840],
+                 offset_in_pixels=0,
+                 plot=False,
+                 color="green",
+                 orientation=orientation)
+
     # generate flatfield image
     flatfield = np.zeros((2160, 3840, 3)).astype(np.uint8)
     cv2.imwrite(os.path.join(basepath, f"di_dark.png"), flatfield)
     flatfield[roi["hor"][0]:roi["hor"][1], roi["ver"][0]:roi["ver"][1], 1] = 255
     cv2.imwrite(os.path.join(basepath, f"di_flatfield_green.png"), flatfield)
+
+
 
 
 def gen_many_lines(filesave,
