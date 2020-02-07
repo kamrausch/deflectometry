@@ -110,10 +110,7 @@ class Deflectometry():
 
                 Ny, Nx = image.image.shape
                 roi = image.image[2200:2600, 2600:3000]
-                min_contrast = minimum_filter(roi, (20, 20)).astype(np.float32)
-                max_contrast = maximum_filter(roi, (20, 20)).astype(np.float32)
-                contrast_ = (max_contrast-min_contrast) / (max_contrast+min_contrast)
-                contrast_ = gaussian_filter(contrast_, sigma=4)
+                contrast_ = self.contrast_map(roi, kernel=20)
                 contrast_[contrast_>1] = 1
                 contrast_[contrast_<0] = 0
                 contrast.append(np.mean(contrast_))
@@ -121,6 +118,19 @@ class Deflectometry():
                 plt.plot(inds, contrast)
                 plt.pause(0.001)
 
+    def contrast_map(self, image, kernel=10):
+        tmp_image = image.copy()
+        mask_out = self.mask == 0
+        tmp_image[mask_out] = np.max(image)
+        min_contrast = minimum_filter(tmp_image, (kernel, kernel)).astype(np.float32)
+        tmp_image[mask_out] = np.min(image)
+        max_contrast = maximum_filter(tmp_image, (kernel, kernel)).astype(np.float32)
+        contrast = (max_contrast-min_contrast) / (max_contrast+min_contrast)
+        # contrast = gaussian_filter(contrast, sigma=4)
+        contrast = contrast * self.mask
+        contrast[contrast>1] = 1
+        contrast[contrast<0] = 0
+        return contrast
 
     def capture(self):
 
@@ -149,7 +159,9 @@ class Deflectometry():
             cam.set_gain_db(gain_db=0.0)
             # push dark image to monitor and grab a picture
             self.image_display.show_image(dark_filename)
-            save_fname = os.path.join(self.results_path, self.get_savename(dark_filename))
+            save_fname = os.path.join(self.results_path, "images")
+            os.makedirs(save_fname, exist_ok=True)
+            save_fname = os.path.join(save_fname, self.get_savename(dark_filename))
             dark_image = self.capture_image(cam_object=cam,
                                             dark_image=None,
                                             min_DN=1,
@@ -165,7 +177,7 @@ class Deflectometry():
                     # cam.set_exposure_time_ms(exposure_time_ms=5e3)
                     cam.set_exposure_time_ms(exposure_time_ms=950)
                 self.image_display.show_image(filename)
-                save_fname = os.path.join(self.results_path, self.get_savename(filename))
+                save_fname = os.path.join(self.results_path, "images", self.get_savename(filename))
                 save_fname = save_fname.replace("di_", "")
                 image = self.capture_image(cam_object=cam,
                                            dark_image=dark_image.image,
@@ -226,7 +238,7 @@ class Deflectometry():
         warp["residual"] = residual
         return warp
 
-    def find_line_in_image(self, image, threshold=30, kernel_size=5, plot=True):
+    def find_line_in_image(self, image, threshold=15, kernel_size=5, plot=True):
         min_contour_area = 500
         kernel = np.ones((kernel_size, kernel_size), np.uint8)
 
@@ -236,6 +248,8 @@ class Deflectometry():
         image = cv2.bilateralFilter(image, 11, 17, 17)
 
         retval, thresh = cv2.threshold(image.copy(), threshold, 255, cv2.THRESH_BINARY)
+
+        thresh = thresh.astype(np.uint8)
 
         thresh = cv2.dilate(thresh, kernel, iterations=5)
         thresh = cv2.erode(thresh, kernel, iterations=5)
@@ -288,11 +302,14 @@ class Deflectometry():
         x = np.arange(0, len(data))
         return np.sum(x*data)/np.sum(data)
 
-    def load_image(self, filename):
+    def load_image(self, filename, dark_frame=None):
         if not os.path.exists(filename):
             print(f"{filename} does not exist")
 
-        image = cv2.imread(filename, 0)
+        image = cv2.imread(filename, 0).astype(np.float32)
+
+        if dark_frame is not None:
+            image = image - dark_frame
 
         if ROTATE_IMAGE:
             image = np.rot90(image, 1)
@@ -313,6 +330,7 @@ class Deflectometry():
         else:
             orientation = "hor"
         filenames = glob(os.path.join(self.results_path, "images", f"*{orientation}*.png"))
+        filenames = [x for x in filenames if "contrast_bars" not in x]
 
         x = []
         y = []
@@ -336,8 +354,6 @@ class Deflectometry():
             x.extend(warp["x"])
             y.extend(warp["y"])
             z.extend(warp["residual"])
-
-            spread = self.measure_spread(line_dict, threshold=0.5)
 
         if "hor" in orientation:
             x,y = y,x
@@ -372,11 +388,11 @@ class Deflectometry():
         image = self.load_image(filename)
         
         self.mask = ((image > threshold)*1).astype(np.uint8)
-        kernel = np.ones((5,5), np.uint8)
-        self.mask = cv2.erode(self.mask, kernel, iterations=3)
+        kernel = np.ones((7,7), np.uint8)
+        self.mask = cv2.erode(self.mask, kernel, iterations=5)
         self.mask_edge = cv2.Canny(self.mask, 0, 1)
 
-    def combine_data(self, vert_data, horiz_data):
+    def generate_slope_map(self, vert_data, horiz_data, plot=False):
         gridPts = 500
         mask_y, mask_x = np.where(self.mask > 0)
         x_min = np.min(mask_x)
@@ -388,8 +404,64 @@ class Deflectometry():
         grid_x, grid_y = np.meshgrid(xi, yi)
         grid_vert = griddata(np.transpose(np.array(vert_data[:2])), np.array(vert_data[2]), (grid_x, grid_y), method="linear" )
         grid_horiz = griddata(np.transpose(np.array(horiz_data[:2])), np.array(horiz_data[2]), (grid_x, grid_y), method="linear" )
-        return np.sqrt(grid_vert**2 + grid_horiz**2)*0.136 / (43*25.4) * 180/np.pi
+        slope_map = np.sqrt(grid_vert**2 + grid_horiz**2)*0.136 / (43*25.4) * 1000
+        plt.imshow(slope_map)
+        plt.colorbar()
+        plt.title("Slope Map [mrad]")
+        plt.savefig(os.path.join(self.results_path, "slope_map.png"))
+        if plot:
+            plt.show()
+        plt.close()
 
+    def generate_contrast_maps(self, widths=[1, 2, 3, 4], plot=False, normalize=[0.212, 0.835, 1, 1]):
+        for ind, width in enumerate(widths):
+            filename = glob(os.path.join(self.results_path, "images", f"*contrast_bars*hor_{width}*.png"))
+            if len(filename) != 1:
+                raise Exception(f"Couldn't find or found multiple filenames")
+            else:
+                filename = filename[0]
+            image = self.load_image(filename, dark_frame=self.dark_image)
+            contrast_hor = self.contrast_map(image, kernel=10)
+
+            filename = glob(os.path.join(self.results_path, "images", f"*contrast_bars*ver_{width}*.png"))
+            if len(filename) != 1:
+                raise Exception(f"Couldn't find or found multiple filenames")
+            else:
+                filename = filename[0]
+            image = self.load_image(filename)
+            contrast_ver = self.contrast_map(image, kernel=10)
+
+            contrast = np.sqrt(contrast_ver**2 + contrast_hor**2) * self.mask
+            contrast = contrast / normalize[ind]
+            contrast[contrast>1] = 1
+            contrast[contrast<0] = 0
+
+            mask_y, mask_x = np.where(self.mask > 0)
+            x_min = np.min(mask_x)
+            x_max = np.max(mask_x)
+            y_min = np.min(mask_y)
+            y_max = np.max(mask_y)
+            contrast = contrast[y_min:y_max, x_min:x_max]
+
+            Ny, Nx = contrast.shape
+            roi = contrast[Ny//2-50:Ny//2+50, Nx//2-50:Nx//2+50]
+
+            plt.imshow(contrast, clim=[0, 1])
+            plt.colorbar()
+            plt.title(f"Contrast Map - Median Contrast = {np.median(roi):.3f}")
+            plt.savefig(os.path.join(self.results_path, f"contrast_map_period_{width}.png"))
+            if plot:
+                plt.show()
+            plt.close()
+
+
+    def get_dark_map(self):
+        filename = glob(os.path.join(self.results_path, "images", "*dark*.png"))
+        if len(filename) != 1:
+            raise Exception(f"Couldn't find or found multiple filenames")
+        else:
+            filename = filename[0]
+        self.dark_image = self.load_image(filename)
 
     def run_test(self):
         if not self.archive_path:
@@ -399,13 +471,13 @@ class Deflectometry():
 
         self.find_mask()
 
+        self.get_dark_map()
+
         vert_data = self.get_slopes(orientation="ver")
         horiz_data = self.get_slopes(orientation="hor")
+        self.generate_slope_map(vert_data=vert_data, horiz_data=horiz_data, plot=False)
 
-        error_map = self.combine_data(vert_data=vert_data, horiz_data=horiz_data)
-        plt.imshow(error_map)
-        plt.colorbar()
-        plt.show()
+        self.generate_contrast_maps()
         # self.combine_images()
 
 
