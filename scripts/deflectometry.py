@@ -3,7 +3,7 @@ from datetime import datetime
 import numpy as np
 import fire
 from glob import glob
-from python_utils import vimba_control as camera
+from python_utils import matrox_control as camera
 from python_utils.image_display import ImageDisplay
 import matplotlib.pyplot as plt
 import cv2
@@ -24,8 +24,8 @@ class Deflectometry():
 
     def __init__(self,
                  serial_number="default",
-                 display_filenames_path=r"C:\Users\tester\Jobs\python\deflectometry\display_images",
-                 results_path=r"C:\Users\tester\Jobs\python\deflectometry\results",
+                 display_filenames_path=r"C:\Users\kameronr\Jobs\python\deflectometry\images",
+                 results_path=r"C:\Users\kameronr\Jobs\python\deflectometry\results",
                  archive_path=None):
 
         self.display_filenames_path = display_filenames_path
@@ -88,11 +88,10 @@ class Deflectometry():
         plt.ion()
         contrast = []
         inds= []
-        cam = camera.VimbaControl()
-        with cam:
-            cam.set_gain_db(gain_db=10.0)
+        with camera.MatroxControl() as cam:
+            cam.set_analog_gain(analog_gain=4)
             # cam.set_exposure_time_ms(exposure_time_ms=1e3)
-            cam.set_exposure_time_ms(exposure_time_ms=400)
+            cam.set_exposure_time(exposure_time_ms=25)
             self.image_display.show_image(dark_filename)
             dark_image = self.capture_image(cam_object=cam,
                                             dark_image=None,
@@ -154,9 +153,9 @@ class Deflectometry():
                                       ' ',
                                       progressbar.Percentage()])
         bar.start()
-        cam = camera.VimbaControl()
-        with cam:
-            cam.set_gain_db(gain_db=0.0)
+        with camera.MatroxControl() as cam:
+            cam.set_analog_gain(analog_gain=4)
+            cam.set_exposure_time(exposure_time_ms=25)
             # push dark image to monitor and grab a picture
             self.image_display.show_image(dark_filename)
             save_fname = os.path.join(self.results_path, "images")
@@ -172,10 +171,10 @@ class Deflectometry():
                 bar.update(ind+1)
                 if "flatfield" in filename:
                     # cam.set_exposure_time_ms(exposure_time_ms=1e3)
-                    cam.set_exposure_time_ms(exposure_time_ms=950)
+                    cam.set_exposure_time(exposure_time_ms=25)
                 else:
                     # cam.set_exposure_time_ms(exposure_time_ms=5e3)
-                    cam.set_exposure_time_ms(exposure_time_ms=950)
+                    cam.set_exposure_time(exposure_time_ms=25)
                 self.image_display.show_image(filename)
                 save_fname = os.path.join(self.results_path, "images", self.get_savename(filename))
                 save_fname = save_fname.replace("di_", "")
