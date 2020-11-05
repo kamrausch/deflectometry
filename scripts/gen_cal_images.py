@@ -55,7 +55,7 @@ def bars(filesave,
     except KeyError:
         raise KeyError(f"Could not find {color} in dictionary list")
 
-    if "vertical" in orientation:
+    if "ver" in orientation:
         image = np.zeros([resolution[0], period_in_pixels, 3], dtype='uint8')
         image[:, offset_in_pixels:offset_in_pixels+width, :] = value
         numTiles = resolution[1] // period_in_pixels + 1
@@ -122,7 +122,7 @@ def gen_deflectometry_images(basepath):
                  color="green",
                  orientation=orientation)
 
-        for width in range(1, 5):
+        for width in range(3, 8):
             filesave_tmp = os.path.join(basepath, f"di_contrast_bars_{orientation}_{width}.png")
             bars(filesave_tmp,
                  width=width,

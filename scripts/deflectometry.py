@@ -3,7 +3,7 @@ from datetime import datetime
 import numpy as np
 import fire
 from glob import glob
-from python_utils import matrox_control as camera
+from python_utils.matrox_control import Camera
 from python_utils.image_display import ImageDisplay
 import matplotlib.pyplot as plt
 import cv2
@@ -57,20 +57,19 @@ class Deflectometry():
     def capture_image(self, cam_object, min_DN, max_DN, save_fname=None, dark_image=None, max_retries=5):
         num_tries = 0
         image_invalid = True
-        while image_invalid and num_tries < max_retries:
-            image = cam_object.capture_image()
-            # breakpoint()
-            if image.is_image_valid(min_DN=min_DN, max_DN=max_DN):
-                image_invalid = False
-                if save_fname is not None:
-                    image.save(savename=save_fname, save_yaml=False)
-                if dark_image is not None:
-                    image.subtract_background(background_image=dark_image)
-                return image
-            else:
-                num_tries += 1
-        else:
-            raise Exception(f"Unable to capture valid image for {save_fname}")
+        # while image_invalid and num_tries < max_retries:
+        image = cam_object.capture_image()
+        # if image.is_image_valid(min_DN=min_DN, max_DN=max_DN, roi_size=1000):
+                # image_invalid = False
+        if save_fname is not None:
+            image.save(savename=save_fname, save_yaml=False)
+        if dark_image is not None:
+            image.subtract_background(background_image=dark_image)
+        return image
+        #     else:
+        #         num_tries += 1
+        # else:
+        #     raise Exception(f"Unable to capture valid image for {save_fname}")
 
     def focus_camera(self, bar_target_filename=None):
 
@@ -88,7 +87,7 @@ class Deflectometry():
         plt.ion()
         contrast = []
         inds= []
-        with camera.MatroxControl() as cam:
+        with Camera() as cam:
             cam.set_analog_gain(analog_gain=4)
             # cam.set_exposure_time_ms(exposure_time_ms=1e3)
             cam.set_exposure_time(exposure_time_ms=25)
@@ -131,8 +130,33 @@ class Deflectometry():
         contrast[contrast<0] = 0
         return contrast
 
+    def align_part(self):
+        self.image_display = ImageDisplay()
+        flatfield_path = r"C:\Users\kameronr\Jobs\python\deflectometry\images\di_flatfield_green.png"
+        self.image_display.show_image(flatfield_path)
+        breakpoint()
+        plt.ion()
+        with Camera() as cam:
+            while True:
+                cam.set_analog_gain(analog_gain=4)
+                cam.set_exposure_time(exposure_time_ms=80)
+                image = cam.capture_image()
+                plt.imshow(image.image)
+                breakpoint()
+                sleep(2)
+                print("it")
+
+        plt.ioff()
+
+    def set_exposure(self):
+        self.image_display = ImageDisplay()
+        flatfield_path = r"C:\Users\kameronr\Jobs\python\deflectometry\images\di_flatfield_green.png"
+        self.image_display.show_image(flatfield_path)
+        breakpoint()
+
     def capture(self):
 
+        exposure_time_ms = 15
         # itialize image display so we can display images on the second monitor
         self.image_display = ImageDisplay()
 
@@ -148,16 +172,17 @@ class Deflectometry():
         filenames = [x for x in filenames if "dark" not in x]
         num_files = len(filenames)
 
-        bar = progressbar.ProgressBar(maxval=len(filenames),
+        bar = progressbar.ProgressBar(maxval=num_files,
                                       widgets=[progressbar.Bar('=', '[', ']'),
                                       ' ',
                                       progressbar.Percentage()])
         bar.start()
-        with camera.MatroxControl() as cam:
+        with Camera() as cam:
             cam.set_analog_gain(analog_gain=4)
-            cam.set_exposure_time(exposure_time_ms=25)
+            cam.set_exposure_time(exposure_time_ms=exposure_time_ms)
+            cam.set_roi(width=1808, height=1808, offset_x=2256, offset_y=3254)
             # push dark image to monitor and grab a picture
-            self.image_display.show_image(dark_filename)
+            self.image_display.show_image(dark_filename, pause_ms=300)
             save_fname = os.path.join(self.results_path, "images")
             os.makedirs(save_fname, exist_ok=True)
             save_fname = os.path.join(save_fname, self.get_savename(dark_filename))
@@ -168,14 +193,8 @@ class Deflectometry():
                                             save_fname=save_fname)
             # breakpoint()
             for ind, filename in enumerate(filenames):
-                bar.update(ind+1)
-                if "flatfield" in filename:
-                    # cam.set_exposure_time_ms(exposure_time_ms=1e3)
-                    cam.set_exposure_time(exposure_time_ms=25)
-                else:
-                    # cam.set_exposure_time_ms(exposure_time_ms=5e3)
-                    cam.set_exposure_time(exposure_time_ms=25)
-                self.image_display.show_image(filename)
+                bar.update(ind + 1)
+                self.image_display.show_image(filename, pause_ms=300)
                 save_fname = os.path.join(self.results_path, "images", self.get_savename(filename))
                 save_fname = save_fname.replace("di_", "")
                 image = self.capture_image(cam_object=cam,
