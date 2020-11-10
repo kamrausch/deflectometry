@@ -36,7 +36,7 @@ class Deflectometry():
             if os.path.exists(r"C:\Users\localuser\Jobs\python\deflectometry"):
                 self.display_filenames_path = r"C:\Users\localuser\Jobs\python\deflectometry\display_images"
                 self.results_path = r"C:\Users\localuser\Jobs\python\deflectometry\results"
-            if os.path.exists(r"C:\Users\tester\Jobs\python\deflectometry"):
+            elif os.path.exists(r"C:\Users\tester\Jobs\python\deflectometry"):
                 self.display_filenames_path = r"C:\Users\tester\Jobs\python\deflectometry\display_images"
                 self.results_path = r"C:\Users\tester\Jobs\python\deflectometry\results"
             else:
@@ -86,7 +86,7 @@ class Deflectometry():
 
         plt.ion()
         contrast = []
-        inds= []
+        inds = []
         with Camera() as cam:
             cam.set_analog_gain(analog_gain=4)
             # cam.set_exposure_time_ms(exposure_time_ms=1e3)
@@ -99,7 +99,7 @@ class Deflectometry():
                                             save_fname=None)
 
             self.image_display.show_image(bar_target_filename)
-            for ind in range(0, 1000): 
+            for ind in range(0, 1000):
                 image = self.capture_image(cam_object=cam,
                                            dark_image=dark_image.image,
                                            min_DN=1,
@@ -109,8 +109,8 @@ class Deflectometry():
                 Ny, Nx = image.image.shape
                 roi = image.image[2200:2600, 2600:3000]
                 contrast_ = self.contrast_map(roi, kernel=20)
-                contrast_[contrast_>1] = 1
-                contrast_[contrast_<0] = 0
+                contrast_[contrast_ > 1] = 1
+                contrast_[contrast_ < 0] = 0
                 contrast.append(np.mean(contrast_))
                 inds.append(ind)
                 plt.plot(inds, contrast)
@@ -126,8 +126,8 @@ class Deflectometry():
         contrast = (max_contrast-min_contrast) / (max_contrast+min_contrast)
         # contrast = gaussian_filter(contrast, sigma=4)
         contrast = contrast * self.mask
-        contrast[contrast>1] = 1
-        contrast[contrast<0] = 0
+        contrast[contrast > 1] = 1
+        contrast[contrast < 0] = 0
         return contrast
 
     def align_part(self):
@@ -216,7 +216,7 @@ class Deflectometry():
             # extract out region around centroid
             breakpoint()
             roi = self.out[row, np.round(line_dict["x"][ind]-roi_wdith).astype(np.uint16):np.round(line_dict["x"][ind]+roi_wdith).astype(np.uint16)]
-            
+
             max_roi = np.max(roi)
             max_ind = np.where(max_roi == roi)[0][0]
             # find the point where the profile equals the FWHM of the peak
@@ -225,19 +225,18 @@ class Deflectometry():
             x = line_dict["y"][ind_start:max_ind]
             x0 = np.interp(0.5*max_roi, sub_roi_, x)
 
-
             tmp_ = roi.copy()
             tmp_[:max_ind] = 0
             ind_end = np.where(np.min(np.abs(tmp_ - 0.3*max_roi)) == np.abs(tmp_ - 0.3*max_roi))[0][0]
             sub_roi_ = roi[max_ind:ind_end]
             x = line_dict["y"][max_ind:ind_end]
             x1 = np.interp(0.5*max_roi, sub_roi_, x)
-            
+
             line_width[ind] = x1-x0
 
         line_width = gaussian_filter1d(line_width, sigma=2)
         return gaussian_filter1d(line_width, sigma=2)
-        
+
 
     def measure_warp(self, line_dict, plot=False):
         warp = {}
@@ -431,7 +430,7 @@ class Deflectometry():
             plt.show()
         plt.close()
 
-    def generate_contrast_maps(self, widths=[1, 2, 3, 4], plot=False, normalize=[0.212, 0.835, 1, 1]):
+    def generate_contrast_maps(self, widths=[3, 4, 5, 6, 7], plot=False, normalize=[1, 1, 1, 1]):
         for ind, width in enumerate(widths):
             filename = glob(os.path.join(self.results_path, "images", f"*contrast_bars*hor_{width}*.png"))
             if len(filename) != 1:
@@ -451,8 +450,8 @@ class Deflectometry():
 
             contrast = np.sqrt(contrast_ver**2 + contrast_hor**2) * self.mask
             contrast = contrast / normalize[ind]
-            contrast[contrast>1] = 1
-            contrast[contrast<0] = 0
+            contrast[contrast > 1] = 1
+            contrast[contrast < 0] = 0
 
             mask_y, mask_x = np.where(self.mask > 0)
             x_min = np.min(mask_x)
