@@ -3,7 +3,7 @@ from datetime import datetime
 import numpy as np
 import fire
 from glob import glob
-from python_utils.matrox_control import Camera
+# from python_utils.matrox_control import Camera
 from python_utils.image_display import ImageDisplay
 import matplotlib.pyplot as plt
 import cv2
@@ -24,13 +24,22 @@ class Deflectometry():
 
     def __init__(self,
                  serial_number="default",
-                 display_filenames_path=r"C:\Users\kameronr\Jobs\python\deflectometry\images",
-                 results_path=r"C:\Users\kameronr\Jobs\python\deflectometry\results",
+                 display_filenames_path=None,
+                 results_path=None,
                  archive_path=None):
 
         self.display_filenames_path = display_filenames_path
         self.results_path = results_path
         self.archive_path = archive_path
+
+        dirname, _ = os.path.split(os.path.abspath(__file__))
+        self.basepath = os.path.dirname(dirname)
+
+        if not self.display_filenames_path:
+            self.display_filenames_path = os.path.join(self.basepath, "images")
+
+        if not self.results_path:
+            self.results_path = os.path.join(self.basepath, "results")
 
         if not os.path.exists(self.display_filenames_path):
             if os.path.exists(r"C:\Users\localuser\Jobs\python\deflectometry"):
@@ -375,7 +384,7 @@ class Deflectometry():
         if "hor" in orientation:
             x,y = y,x
         return x, y, z
-        
+
 
     def combine_images(self):
         filenames = glob(os.path.join(self.results_path, "images", "*.png"))
@@ -392,7 +401,7 @@ class Deflectometry():
         plt.show()            
 
 
-    def find_mask(self, threshold=100):
+    def find_mask(self, threshold=70):
         flatfield_filename = os.path.join(self.results_path, "images", "*flatfield*.png")
         filename = glob(flatfield_filename)
         if len(filename) == 0:
@@ -422,15 +431,18 @@ class Deflectometry():
         grid_vert = griddata(np.transpose(np.array(vert_data[:2])), np.array(vert_data[2]), (grid_x, grid_y), method="linear" )
         grid_horiz = griddata(np.transpose(np.array(horiz_data[:2])), np.array(horiz_data[2]), (grid_x, grid_y), method="linear" )
         slope_map = np.sqrt(grid_vert**2 + grid_horiz**2)*0.136 / (43*25.4) * 1000
-        plt.imshow(slope_map)
+        plt.imshow(slope_map, clim=[0, 0.35])
         plt.colorbar()
-        plt.title("Slope Map [mrad]")
+        tmp = np.nanpercentile(slope_map, 95)
+        tmp_arcmin = tmp*180/np.pi*60/1000
+        plt.axis("off")
+        plt.title(f"Slope Map\nMax={tmp:0.2f}mrads,{tmp_arcmin:0.2f}arcmins")
         plt.savefig(os.path.join(self.results_path, "slope_map.png"))
         if plot:
             plt.show()
         plt.close()
 
-    def generate_contrast_maps(self, widths=[3, 4, 5, 6, 7], plot=False, normalize=[1, 1, 1, 1]):
+    def generate_contrast_maps(self, widths=[1, 2, 3, 4, 5, 6, 7], plot=False, normalize=1):
         for ind, width in enumerate(widths):
             filename = glob(os.path.join(self.results_path, "images", f"*contrast_bars*hor_{width}*.png"))
             if len(filename) != 1:
@@ -449,7 +461,7 @@ class Deflectometry():
             contrast_ver = self.contrast_map(image, kernel=10)
 
             contrast = np.sqrt(contrast_ver**2 + contrast_hor**2) * self.mask
-            contrast = contrast / normalize[ind]
+            contrast = contrast / normalize
             contrast[contrast > 1] = 1
             contrast[contrast < 0] = 0
 
@@ -461,16 +473,17 @@ class Deflectometry():
             contrast = contrast[y_min:y_max, x_min:x_max]
 
             Ny, Nx = contrast.shape
-            roi = contrast[Ny//2-50:Ny//2+50, Nx//2-50:Nx//2+50]
+            roi = contrast[Ny//2-200:Ny//2+200, Nx//2-200:Nx//2+200]
 
             plt.imshow(contrast, clim=[0, 1])
             plt.colorbar()
-            plt.title(f"Contrast Map - Median Contrast = {np.median(roi):.3f}")
+            angular_k = (1090*2)/ (0.136*width*2)*1e-3
+            plt.title(f"Contrast Map - Angular_Frequency={angular_k:0.2f}cyc/mrad\nMedian Contrast={np.median(roi):.3f}")
+            plt.axis("off")
             plt.savefig(os.path.join(self.results_path, f"contrast_map_period_{width}.png"))
             if plot:
                 plt.show()
             plt.close()
-
 
     def get_dark_map(self):
         filename = glob(os.path.join(self.results_path, "images", "*dark*.png"))
@@ -490,11 +503,13 @@ class Deflectometry():
 
         self.get_dark_map()
 
+        self.generate_contrast_maps()
+
         vert_data = self.get_slopes(orientation="ver")
         horiz_data = self.get_slopes(orientation="hor")
         self.generate_slope_map(vert_data=vert_data, horiz_data=horiz_data, plot=False)
 
-        self.generate_contrast_maps()
+        
         # self.combine_images()
 
 
